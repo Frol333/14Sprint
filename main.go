@@ -1,39 +1,47 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/Frol333/14Sprint/pkg/api"
 	"github.com/Frol333/14Sprint/pkg/db"
 )
 
+// Port задаётся по умолчанию, можно переопределить через переменную окружения в тестах.
+var port = 7540
+
+// Путь к директории с фронтендом (файлы из ./web будут выдавать сервер)
+var webDir = "./web"
+
 func main() {
-
 	// Инициализация БД
-	// Используйте data/scheduler.db для надёжного хранения
-	if err := db.Init("scheduler.db"); err != nil {
-		log.Fatalf("failed to initialize database: %v", err)
+	dbFile := "scheduler.db"
+	if env := os.Getenv("TODO_DBFILE"); env != "" {
+		dbFile = env
 	}
-	defer db.Close()
+	if err := db.Init(dbFile); err != nil {
+		log.Fatalf("DB init failed: %v", err)
+	}
 
-	// Регистрация маршрутов API (POST /api/task и GET /api/tasks)
 	api.Init()
 
-	// Статические файлы
-	webDir := "web"
-	http.Handle("/", http.FileServer(http.Dir(webDir)))
-
-	// Порт сервера
-	port := os.Getenv("TODO_PORT")
-	if port == "" {
-		port = "7540"
+	if v := os.Getenv("TODO_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			port = p
+		}
 	}
 
-	log.Printf("Starting server on port %s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("server failed: %v", err)
-	}
+	// http.FileServer будет отдавать файлы из webDir
+	fs := http.FileServer(http.Dir(webDir))
+	http.Handle("/", fs)
 
+	addr := fmt.Sprintf("127.0.0.1:%v", port)
+	log.Print("Starting server")
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		log.Fatal(err)
+	}
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Frol333/14Sprint/pkg/db"
@@ -44,10 +45,46 @@ func tasksHandler(w http.ResponseWriter, r *http.Request) {
 
 // saveTaskHandler обрабатывает POST/PUT /api/tasks
 // Сохраняет новую задачу или обновляет существующую.
-func saveTaskHandler(w http.ResponseWriter, r *http.Request) {
+func taskHandler(w http.ResponseWriter, r *http.Request) {
+	// Чтение задачи из тела запроса
+
 	switch r.Method {
-	case http.MethodPost, http.MethodPut:
-		// Чтение задачи из тела запроса
+	case http.MethodGet:
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			writeJson(w, map[string]string{"error": "Не указан идентификатор"})
+			return
+		}
+		intID, err := strconv.Atoi(id)
+		if err != nil {
+			writeJson(w, map[string]string{"error": "Не корректный идентификатор"})
+			return
+		}
+		if task, err := db.GetTask(r.Context(), int64(intID)); err != nil {
+			writeJson(w, map[string]string{"error": err.Error()})
+			return
+		} else {
+			writeJson(w, task)
+			return
+		}
+	case http.MethodDelete:
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			writeJson(w, map[string]string{"error": "Не указан идентификатор"})
+			return
+		}
+		intID, err := strconv.Atoi(id)
+		if err != nil {
+			writeJson(w, map[string]string{"error": "Не корректный идентификатор"})
+			return
+		}
+		if err := db.DeleteTask(r.Context(), int64(intID)); err != nil {
+			writeJson(w, map[string]string{"error": err.Error()})
+			return
+		}
+
+		return
+	case http.MethodPost:
 		var t db.Task
 		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 			writeJson(w, map[string]string{"error": "invalid json"})
@@ -60,7 +97,27 @@ func saveTaskHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Обновление/создание задачи (upsert-логика предполагается в UpdateTask)
-		if err := db.UpdateTask(&t); err != nil {
+		if id, err := db.AddTask(r.Context(), &t); err != nil {
+			writeJson(w, map[string]string{"error": err.Error()})
+			return
+		} else {
+			writeJson(w, map[string]int64{"id": id})
+		}
+
+	case http.MethodPut:
+		var t db.Task
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+			writeJson(w, map[string]string{"error": "invalid json"})
+			return
+		}
+		// Простейшая валидация: дата и заголовок обязателены
+		// (можно скорректировать под вашу модель)
+		if t.Date == "" || t.Title == "" {
+			writeJson(w, map[string]string{"error": "missing date or title"})
+			return
+		}
+		// Обновление/создание задачи (upsert-логика предполагается в UpdateTask)
+		if err := db.UpdateTask(r.Context(), &t); err != nil {
 			writeJson(w, map[string]string{"error": err.Error()})
 			return
 		}
@@ -81,15 +138,20 @@ func doneHandler(w http.ResponseWriter, r *http.Request) {
 		writeJson(w, map[string]string{"error": "Не указан идентификатор"})
 		return
 	}
-	t, err := db.GetTask(id)
+	intID, err := strconv.Atoi(id)
 	if err != nil {
-		writeJson(w, map[string]string{"error": err.Error()})
+		writeJson(w, map[string]string{"error": "Не корректный идентификатор"})
+		return
+	}
+	t, err := db.GetTask(r.Context(), int64(intID))
+	if err != nil {
+		http.Error(w, "In terner error ", http.StatusInternalServerError)
 		return
 	}
 
 	// Если задача одноразовая (repeat пустой), удаляем
 	if t.Repeat == "" {
-		if err := db.DeleteTask(id); err != nil {
+		if err := db.DeleteTask(r.Context(), int64(intID)); err != nil {
 			writeJson(w, map[string]string{"error": err.Error()})
 			return
 		}
@@ -128,22 +190,4 @@ func doneHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeJson(w, map[string]interface{}{})
 
-}
-
-// delHandler обрабатывает DELETE /api/tasks/delete?id=…
-func delHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		writeJson(w, map[string]string{"error": "Не указан идентификатор"})
-		return
-	}
-	if err := db.DeleteTask(id); err != nil {
-		writeJson(w, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJson(w, map[string]interface{}{})
 }
