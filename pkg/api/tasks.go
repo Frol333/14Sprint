@@ -1,10 +1,16 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
+
+	"github.com/golang-jwt/jwt/v4"
 
 	"github.com/Frol333/14Sprint/pkg/db"
 )
@@ -160,8 +166,7 @@ func doneHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Периодическая задача: вычисляем следующую дату и обновляем её
-	// Пример сигнатуры: NextDate(currentDate, repeat)
-	// Распарсить дату в time.Time
+
 	var currDate time.Time
 	var parseErr error
 	layouts := []string{"2006-01-02", "2006-01-02 15:04:05", time.RFC3339}
@@ -189,5 +194,112 @@ func doneHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJson(w, map[string]interface{}{})
+
+}
+
+// Вот что я добавил и плюс прописал в файле api.go
+type Claims struct {
+	PwdHash string `json:"pwdHash"`
+	jwt.RegisteredClaims
+}
+
+func hashPassword(p string) string {
+	h := sha256.Sum256([]byte(p))
+	return hex.EncodeToString(h[:])
+}
+
+func signinHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	envPass := os.Getenv("TODO_PASSWORD")
+	// Если пароль не задан в окружении — аутентификация не требуется
+	if len(envPass) > 0 {
+		if req.Password != envPass {
+			// неверный пароль
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Неверный пароль"})
+			return
+		}
+	}
+
+	// формируем токен: подпись HS256, срок жизни 8 часов
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "default_secret" // можно заменить по месту на более строгий секрет
+	}
+	hash := hashPassword(envPass) // хэш текущего пароля
+	claims := &Claims{
+		PwdHash: hash,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(8 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(secret))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "token generation error"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
+
+}
+
+// auth middleware: проверяет куку token, валидирует JWT и сравнивает pwdHash
+func auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pass := os.Getenv("TODO_PASSWORD")
+		// если пароль не указан — фильтрация не требуется
+		if len(pass) > 0 {
+			cookie, err := r.Cookie("token")
+			if err != nil {
+				http.Error(w, "Authentification required", http.StatusUnauthorized)
+				return
+			}
+			tokenStr := cookie.Value
+			secret := os.Getenv("JWT_SECRET")
+			if secret == "" {
+				secret = "default_secret"
+			}
+			claims := &Claims{}
+			token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+				// простая проверка подписи
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+				}
+				return []byte(secret), nil
+			})
+
+			if err != nil || !token.Valid {
+				http.Error(w, "Authentification required", http.StatusUnauthorized)
+				return
+			}
+
+			// валидируем соответствие пароля текущему значению TODO_PASSWORD
+			currentHash := hashPassword(pass)
+			if claims.PwdHash != currentHash {
+				http.Error(w, "Authentification required", http.StatusUnauthorized)
+				return
+			}
+		}
+		// либо пароль пустой (аутентификация не требуется), либо прошли проверки
+		next(w, r)
+	}
 
 }
