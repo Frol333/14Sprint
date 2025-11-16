@@ -9,6 +9,8 @@ import (
 	"github.com/Frol333/14Sprint/pkg/model"
 )
 
+const defaultLimit = 50
+
 // AddTask добавляет задачу в таблицу scheduler и возвращает id новой записи.
 func AddTask(ctx context.Context, task *model.Task) (int64, error) {
 	var id int64
@@ -29,7 +31,7 @@ func AddTask(ctx context.Context, task *model.Task) (int64, error) {
 // Задачи сортируются по дате ascending (по возрастанию).
 func Tasks(ctx context.Context, limit int) ([]*model.Task, error) {
 	if limit <= 0 {
-		limit = 50
+		limit = defaultLimit
 	}
 	rows, err := DB.QueryContext(ctx, `SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date ASC LIMIT ?`, limit)
 	if err != nil {

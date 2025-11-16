@@ -31,10 +31,11 @@ func setupRouter(r *mux.Router) http.Handler {
 	api.Use(middleware.Auth)
 	api.HandleFunc("/tasks", service.TasksHandler).Methods(http.MethodGet)
 	api.HandleFunc("/task", service.GetTask).Methods(http.MethodGet)
-	api.HandleFunc("/task", service.UpdateTask).Methods(http.MethodPatch)
+	api.HandleFunc("/task", service.UpdateTask).Methods(http.MethodPatch, http.MethodPut)
 	api.HandleFunc("/task", service.CrateTask).Methods(http.MethodPost)
 	api.HandleFunc("/task", service.DeleteTask).Methods(http.MethodDelete)
 	api.HandleFunc("/task/done", service.DoneHandler).Methods(http.MethodPost)
+	api.HandleFunc("/nextdate", service.NextDateHandler).Methods(http.MethodGet)
 
 	r.PathPrefix("/").Handler(http.StripPrefix("/", fs))
 

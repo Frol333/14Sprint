@@ -12,16 +12,25 @@ const dateLayout = "20060102"
 
 func NextDate(current time.Time, repeat string) (time.Time, error) {
 	parts := strings.Fields(repeat)
+	if len(parts) == 0 {
+		return current, fmt.Errorf("repeat should not be empty")
+	}
 
 	switch parts[0] {
 
 	// ---------- DAILY ----------
 	case "d":
+		if len(parts) < 2 {
+			return current, fmt.Errorf("daily repeat should contain interval")
+		}
 		n, err := strconv.Atoi(parts[1])
 		if err != nil {
 			return current, err
 		}
-		return current.Add(time.Duration(n) * 24 * time.Hour), nil
+		if n <= 0 || n > 400 {
+			return current, fmt.Errorf("daily repeat interval should be between 1 and 400")
+		}
+		return current.AddDate(0, 0, n), nil
 
 	// ---------- YEARLY ----------
 	case "y":
@@ -29,6 +38,9 @@ func NextDate(current time.Time, repeat string) (time.Time, error) {
 
 	// ---------- MONTHLY WITH DAY LIST ----------
 	case "m":
+		if len(parts) < 2 {
+			return current, fmt.Errorf("monthly repeat should contain day list")
+		}
 		// parts[1] = "1,2"
 		daysStr := parts[1]
 		dayList := parseIntList(daysStr)
