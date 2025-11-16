@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"os"
 
@@ -20,6 +21,12 @@ const schema = `CREATE TABLE IF NOT EXISTS scheduler (
 CREATE INDEX IF NOT EXISTS idx_scheduler_date ON scheduler (date);
 `
 
+const userSchema = `CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    password_hash TEXT NOT NULL
+);
+`
+
 // Init открывает базу данных и, при необходимости, создает таблицу и индекс.
 func Init(dbFile string) error {
 	install := false
@@ -35,12 +42,20 @@ func Init(dbFile string) error {
 	if err != nil {
 		return err
 	}
+
 	DB = db
 
 	if install {
 		if _, err := DB.Exec(schema); err != nil {
 			return err
 		}
+		if _, err := DB.Exec(userSchema); err != nil {
+			return err
+		}
+		if _, err := DB.ExecContext(context.Background(), `SELECT id FROM users WHERE password_hash`); err != nil {
+			return err
+		}
+
 	}
 	return nil
 

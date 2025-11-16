@@ -5,19 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+
+	"github.com/Frol333/14Sprint/pkg/model"
 )
 
-// Task хранит параметры задачи. Поле ID возвращается после добавления в БД.
-type Task struct {
-	ID      int64  `json:"id"`
-	Date    string `json:"date"`
-	Title   string `json:"title"`
-	Comment string `json:"comment"`
-	Repeat  string `json:"repeat"`
-}
-
 // AddTask добавляет задачу в таблицу scheduler и возвращает id новой записи.
-func AddTask(ctx context.Context, task *Task) (int64, error) {
+func AddTask(ctx context.Context, task *model.Task) (int64, error) {
 	var id int64
 	query := `INSERT INTO scheduler (date, title, comment, repeat) VALUES (?, ?, ?, ?)`
 	// Используем глобальную DB из пакета db
@@ -34,20 +27,20 @@ func AddTask(ctx context.Context, task *Task) (int64, error) {
 
 // Tasks возвращает список задач с ограничением по количеству (limit).
 // Задачи сортируются по дате ascending (по возрастанию).
-func Tasks(limit int) ([]*Task, error) {
+func Tasks(ctx context.Context, limit int) ([]*model.Task, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := DB.Query(`SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date ASC LIMIT ?`, limit)
+	rows, err := DB.QueryContext(ctx, `SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var tasks []*Task
+	var tasks []*model.Task
 	for rows.Next() {
 
-		t := &Task{}
+		t := &model.Task{}
 		if err := rows.Scan(&t.ID, &t.Date, &t.Title, &t.Comment, &t.Repeat); err != nil {
 			return nil, err
 		}
@@ -59,15 +52,15 @@ func Tasks(limit int) ([]*Task, error) {
 	}
 	// гарантия, что возвращаем не nil слайс
 	if tasks == nil {
-		tasks = make([]*Task, 0)
+		tasks = make([]*model.Task, 0)
 	}
 	return tasks, nil
 
 }
 
 // GetTask возвращает задачу по ID (id в БД хранится как целое число, возвращаем как строку)
-func GetTask(ctx context.Context, id int64) (*Task, error) {
-	var t Task
+func GetTask(ctx context.Context, id int64) (*model.Task, error) {
+	var t model.Task
 	row := DB.QueryRowContext(ctx, `SELECT id, date, title, comment, repeat FROM scheduler WHERE id = ?`, id)
 	if err := row.Scan(&t.ID, &t.Date, &t.Title, &t.Comment, &t.Repeat); err != nil {
 		if err == sql.ErrNoRows {
@@ -80,8 +73,7 @@ func GetTask(ctx context.Context, id int64) (*Task, error) {
 }
 
 // UpdateTask обновляет запись задачи по её ID
-func UpdateTask(ctx context.Context, task *Task) error {
-
+func UpdateTask(ctx context.Context, task *model.Task) error {
 	res, err := DB.ExecContext(ctx, `UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat = ? WHERE id = ?`,
 		task.Date, task.Title, task.Comment, task.Repeat, task.ID)
 	if err != nil {

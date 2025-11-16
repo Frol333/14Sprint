@@ -2,46 +2,49 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"strconv"
 
 	"github.com/Frol333/14Sprint/pkg/api"
+	"github.com/Frol333/14Sprint/pkg/config"
 	"github.com/Frol333/14Sprint/pkg/db"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
-// Port задаётся по умолчанию, можно переопределить через переменную окружения в тестах.
-var port = 7540
+func initLogger(logLevel string) {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	ll, err := zerolog.ParseLevel(logLevel)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse log level with err")
+		panic(err)
+	}
+	zerolog.SetGlobalLevel(ll)
+}
 
-// Путь к директории с фронтендом (файлы из ./web будут выдавать сервер)
-var webDir = "./web"
+var (
+	shutdown = make(chan struct{})
+)
 
 func main() {
+	cfg := config.New()
+	initLogger(cfg.LogLevel)
+	log.Info().Msg("the configuration was initialized successfully")
+
 	// Инициализация БД
-	dbFile := "scheduler.db"
-	if env := os.Getenv("TODO_DBFILE"); env != "" {
-		dbFile = env
+	if err := db.Init(cfg.DBFile); err != nil {
+		log.Panic().Err(err).Msg("Failed to init db")
 	}
-	if err := db.Init(dbFile); err != nil {
-		log.Fatalf("DB init failed: %v", err)
-	}
+	log.Info().Msg("the DB was initialized successfully")
+	listenAddr := fmt.Sprintf("127.0.0.1:%v", cfg.Port)
+	srv := api.New(listenAddr)
 
-	api.Init()
-
-	if v := os.Getenv("TODO_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err == nil {
-			port = p
+	go func() {
+		log.Info().Msgf("Start running server on port %v", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatal().Err(err).Msg("Server wasn't starting")
 		}
-	}
+	}()
 
-	// http.FileServer будет отдавать файлы из webDir
-	fs := http.FileServer(http.Dir(webDir))
-	http.Handle("/", fs)
+	<-shutdown
 
-	addr := fmt.Sprintf("127.0.0.1:%v", port)
-	log.Print("Starting server")
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatal(err)
-	}
+	log.Info().Msg("Server was stopping")
 }

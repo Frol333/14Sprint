@@ -1,20 +1,42 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
 
-var routesRegistered bool
+	"github.com/Frol333/14Sprint/pkg/middleware"
+	"github.com/Frol333/14Sprint/pkg/service"
 
-func Init() {
-	if routesRegistered {
-		return
+	"github.com/gorilla/mux"
+)
+
+const webDir = "./web"
+
+func New(httpAddr string) *http.Server {
+	r := mux.NewRouter()
+
+	return &http.Server{
+		Addr:    httpAddr,
+		Handler: setupRouter(r),
 	}
-	// http.HandleFunc("/api/tasks", tasksHandler)
-	// http.HandleFunc("/api/task", taskHandler)
-	// //http.HandleFunc("/api/task/done", doneHandler)
-	// http.HandleFunc("/api/signin", signinHandler)
-	http.HandleFunc("/api/signin", signinHandler)
-	http.HandleFunc("/api/tasks", auth(tasksHandler))
-	http.HandleFunc("/api/task", auth(taskHandler))
-	http.HandleFunc("/api/task/done", auth(doneHandler))
-	routesRegistered = true
+}
+
+func setupRouter(r *mux.Router) http.Handler {
+	r.StrictSlash(true)
+
+	fs := http.FileServer(http.Dir(webDir))
+	r.Handle("/", fs)
+	r.HandleFunc("/api/signin", service.CheckPassword).Methods(http.MethodPost)
+	api := r.PathPrefix("/api").Subrouter()
+	api.Use(middleware.LoggingMiddleware)
+	api.Use(middleware.Auth)
+	api.HandleFunc("/tasks", service.TasksHandler).Methods(http.MethodGet)
+	api.HandleFunc("/task", service.GetTask).Methods(http.MethodGet)
+	api.HandleFunc("/task", service.UpdateTask).Methods(http.MethodPatch)
+	api.HandleFunc("/task", service.CrateTask).Methods(http.MethodPost)
+	api.HandleFunc("/task", service.DeleteTask).Methods(http.MethodDelete)
+	api.HandleFunc("/task/done", service.DoneHandler).Methods(http.MethodPost)
+
+	r.PathPrefix("/").Handler(http.StripPrefix("/", fs))
+
+	return r
 }
